@@ -65,6 +65,24 @@ func (b *Buffer) Drain(stationID string, currentEpoch uint64) (ready, retired []
 	return ready, retired
 }
 
+// Requeue returns drained commands to the station's pending queue, keeping
+// their identity and the (epoch, sequence) replay order for the next drain.
+func (b *Buffer) Requeue(stationID string, commands []BufferedCommand) {
+	if len(commands) == 0 {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.commands[stationID] = append(b.commands[stationID], commands...)
+	sort.SliceStable(b.commands[stationID], func(i, j int) bool {
+		left, right := b.commands[stationID][i], b.commands[stationID][j]
+		if left.Epoch == right.Epoch {
+			return left.Sequence < right.Sequence
+		}
+		return left.Epoch < right.Epoch
+	})
+}
+
 func (b *Buffer) Pending(stationID string) []BufferedCommand {
 	b.mu.Lock()
 	defer b.mu.Unlock()

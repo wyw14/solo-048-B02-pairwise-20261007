@@ -41,6 +41,7 @@ func (r *Reconnector) Reconnect(stationID string, currentEpoch uint64) (ReplayRe
 			Sequence: buffered.Sequence, Celsius: buffered.Celsius, Status: "rejected_old_epoch", At: buffered.QueuedAt,
 		})
 	}
+	retry := make([]dispatch.BufferedCommand, 0, len(ready))
 	for _, buffered := range ready {
 		command, err := r.commands.Apply(station.Command{
 			ID: buffered.CommandID, StationID: stationID, Epoch: buffered.Epoch,
@@ -48,9 +49,24 @@ func (r *Reconnector) Reconnect(stationID string, currentEpoch uint64) (ReplayRe
 		})
 		if err != nil {
 			result.Rejected = append(result.Rejected, command)
+			retry = append(retry, buffered)
 			continue
 		}
 		result.Applied = append(result.Applied, command)
+	}
+	// Unhandled commands go back to the buffer in their original order so the
+	// next reconnect retries them instead of silently dropping them.
+	r.buffer.Requeue(stationID, retry)
+	if len(result.Rejected) > 0 {
+		// The backlog is not reconciled (unhandled or old-epoch commands):
+		// the station must not report online.
+		if _, err := r.stations.SetOnline(stationID, false); err != nil {
+			return result, err
+		}
+		if err := r.audit.Rejected("recovery.reconnect", stationID, "recovery", "station replay incomplete", map[string]any{"epoch": currentEpoch, "applied": len(result.Applied), "rejected": len(result.Rejected), "requeued": len(retry)}); err != nil {
+			return result, err
+		}
+		return result, fmt.Errorf("station %s replay incomplete: %d rejected, %d requeued for retry", stationID, len(result.Rejected), len(retry))
 	}
 	if _, err := r.stations.SetOnline(stationID, true); err != nil {
 		return result, err
