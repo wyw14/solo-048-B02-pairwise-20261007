@@ -1,9 +1,12 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+
+	"heatpulse/internal/recovery"
 )
 
 func (a *App) reconnectStation(w http.ResponseWriter, r *http.Request) {
@@ -16,6 +19,13 @@ func (a *App) reconnectStation(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := a.Reconnector.Reconnect(chi.URLParam(r, "stationID"), input.Epoch)
 	if err != nil {
+		// A replay that could not reconcile every buffered command leaves the
+		// station offline; respond 409 together with the partial replay
+		// result (online=false, rejected/pending counts).
+		if errors.Is(err, recovery.ErrReplayIncomplete) {
+			writeErrorResult(w, http.StatusConflict, err, result)
+			return
+		}
 		writeError(w, http.StatusConflict, err)
 		return
 	}

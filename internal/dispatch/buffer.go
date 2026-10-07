@@ -65,6 +65,15 @@ func (b *Buffer) Drain(stationID string, currentEpoch uint64) (ready, retired []
 	return ready, retired
 }
 
+func (b *Buffer) Requeue(stationID string, commands []BufferedCommand) {
+	if len(commands) == 0 {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.commands[stationID] = append(b.commands[stationID], commands...)
+}
+
 func (b *Buffer) Pending(stationID string) []BufferedCommand {
 	b.mu.Lock()
 	defer b.mu.Unlock()

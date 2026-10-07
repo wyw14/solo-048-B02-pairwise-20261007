@@ -24,6 +24,15 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	_ = json.NewEncoder(w).Encode(responseEnvelope{Error: err.Error()})
 }
 
+// writeErrorResult reports an error together with the partial result that
+// produced it, so callers can see reconciliation state (applied, rejected and
+// pending commands) instead of just a status.
+func writeErrorResult(w http.ResponseWriter, status int, err error, result any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(responseEnvelope{Data: result, Error: err.Error()})
+}
+
 func decodeJSON(r *http.Request, destination any) error {
 	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
 	decoder.DisallowUnknownFields()
